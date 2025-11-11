@@ -2,12 +2,25 @@
 Game class - main game manager and brain of everything
 """
 import pygame
+import time
 from player import Player
 from bullet import Bullet
 from enemy import Enemy, spawn_enemy_at_edge
 from round_manager import RoundManager
 from world import WorldManager
 from inventory import Inventory
+from ui import HUD, MainMenu, PauseMenu, GameOverMenu
+from upgrade_shop import UpgradeShop
+from save_manager import SaveManager, create_save_data, restore_from_save
+
+
+class GameState:
+    """Game state enum"""
+    MENU = "menu"
+    PLAYING = "playing"
+    PAUSED = "paused"
+    SHOP = "shop"
+    GAME_OVER = "game_over"
 
 
 class Game:
@@ -31,55 +44,183 @@ class Game:
 
         # Game state
         self.running = True
-        self.game_over = False
+        self.state = GameState.MENU
+
+        # Clock
+        self.clock = pygame.time.Clock()
+
+        # Save manager
+        self.save_manager = SaveManager()
+
+        # UI Components
+        self.hud = HUD(self.screen_width, self.screen_height)
+        self.main_menu = MainMenu(self.screen_width, self.screen_height)
+        self.pause_menu = PauseMenu(self.screen_width, self.screen_height)
+        self.game_over_menu = GameOverMenu(self.screen_width, self.screen_height)
+        self.upgrade_shop = UpgradeShop(self.screen_width, self.screen_height)
+
+        # Check for save file and update menu
+        self._update_menu_save_state()
+
+        # Game session data (initialized when starting new game)
+        self.player = None
+        self.bullets = []
+        self.enemies = []
+        self.drops = []
+        self.inventory = None
+        self.world_manager = None
+        self.round_manager = None
         self.kills = 0
+        self.round_complete_flag = False
+        self.session_start_time = None
+        self.total_playtime = 0
+
+    def _update_menu_save_state(self):
+        """Update main menu based on save file existence"""
+        has_save = self.save_manager.has_save()
+        save_info = self.save_manager.get_save_info() if has_save else None
+        self.main_menu.set_save_state(has_save, save_info)
+
+    def start_new_game(self, delete_save=True):
+        """
+        Initialize a new game session
+
+        Args:
+            delete_save (bool): Whether to delete existing save file
+        """
+        # Delete save if requested
+        if delete_save:
+            self.save_manager.delete_save()
+            self._update_menu_save_state()
 
         # Create player at center
         self.player = Player(
             self.screen_width // 2,
             self.screen_height // 2,
-            config['player']
+            self.config['player']
         )
 
         # Game objects
         self.bullets = []
         self.enemies = []
         self.drops = []
+        self.kills = 0
+        self.round_complete_flag = False
+        self.session_start_time = time.time()
+        self.total_playtime = 0
 
         # Inventory system
         self.inventory = Inventory()
 
         # World and Round Management
-        self.world_manager = WorldManager(config['worlds'])
+        self.world_manager = WorldManager(self.config['worlds'])
         self.round_manager = RoundManager(self.screen_width, self.screen_height)
         self.round_manager.start_round()  # Start first round
 
-        # Colors
-        self.TEXT_COLOR = (255, 255, 255)
+        # Change state to playing
+        self.state = GameState.PLAYING
 
-        # Font
-        self.font = pygame.font.Font(None, 32)
-        self.small_font = pygame.font.Font(None, 24)
+    def load_saved_game(self):
+        """Load game from save file"""
+        save_data = self.save_manager.load_game()
 
-        # Clock
-        self.clock = pygame.time.Clock()
+        if not save_data:
+            print("Failed to load save file")
+            # Fall back to new game
+            self.start_new_game(delete_save=False)
+            return
+
+        # Initialize game objects first
+        self.player = Player(
+            self.screen_width // 2,
+            self.screen_height // 2,
+            self.config['player']
+        )
+        self.bullets = []
+        self.enemies = []
+        self.drops = []
+        self.round_complete_flag = False
+        self.session_start_time = time.time()
+
+        # Inventory and managers
+        self.inventory = Inventory()
+        self.world_manager = WorldManager(self.config['worlds'])
+        self.round_manager = RoundManager(self.screen_width, self.screen_height)
+
+        # Restore state from save
+        self.kills = restore_from_save(
+            save_data,
+            self.player,
+            self.inventory,
+            self.world_manager,
+            self.round_manager
+        )
+
+        # Restore playtime
+        self.total_playtime = save_data.get('stats', {}).get('playtime', 0)
+
+        # Start the current round
+        self.round_manager.start_round()
+
+        # Change state to playing
+        self.state = GameState.PLAYING
+
+    def save_game(self):
+        """Save current game state"""
+        if not self.player or not self.inventory:
+            return False
+
+        # Calculate playtime
+        if self.session_start_time:
+            session_time = time.time() - self.session_start_time
+            playtime = self.total_playtime + session_time
+        else:
+            playtime = self.total_playtime
+
+        # Create save data
+        save_data = create_save_data(
+            self.player,
+            self.inventory,
+            self.world_manager,
+            self.round_manager,
+            self.kills,
+            playtime
+        )
+
+        # Save to file
+        success = self.save_manager.save_game(save_data)
+
+        if success:
+            # Update menu state
+            self._update_menu_save_state()
+
+        return success
 
     def handle_events(self):
         """Handle pygame events"""
+        mouse_pos = pygame.mouse.get_pos()
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
 
             elif event.type == pygame.KEYDOWN:
+                # ESC key behavior depends on state
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    if self.state == GameState.PLAYING:
+                        self.state = GameState.PAUSED
+                    elif self.state == GameState.PAUSED:
+                        self.state = GameState.PLAYING
+                    elif self.state == GameState.MENU:
+                        self.running = False
 
-                # Shoot with spacebar
-                if event.key == pygame.K_SPACE and not self.game_over:
-                    self.try_shoot()
+                # Gameplay controls (only during PLAYING state)
+                if self.state == GameState.PLAYING:
+                    # Shoot with spacebar
+                    if event.key == pygame.K_SPACE:
+                        self.try_shoot()
 
-                # Weapon switching (1, 2, 3 keys)
-                if not self.game_over:
+                    # Weapon switching (1, 2, 3 keys)
                     if event.key == pygame.K_1:
                         self.inventory.switch_weapon(0)
                     elif event.key == pygame.K_2:
@@ -87,13 +228,52 @@ class Game:
                     elif event.key == pygame.K_3:
                         self.inventory.switch_weapon(2)
 
-            # Shoot with left mouse button
+            # Mouse clicks
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1 and not self.game_over:  # Left click
-                    self.try_shoot()
+                if event.button == 1:  # Left click
+                    if self.state == GameState.MENU:
+                        action = self.main_menu.handle_click(mouse_pos)
+                        if action == 'continue':
+                            self.load_saved_game()
+                        elif action == 'new_game':
+                            self.start_new_game(delete_save=True)
+                        elif action == 'quit':
+                            self.running = False
+
+                    elif self.state == GameState.PLAYING:
+                        self.try_shoot()
+
+                    elif self.state == GameState.PAUSED:
+                        action = self.pause_menu.handle_click(mouse_pos)
+                        if action == 'resume':
+                            self.state = GameState.PLAYING
+                        elif action == 'main_menu':
+                            # Save game before returning to menu
+                            self.save_game()
+                            self.state = GameState.MENU
+
+                    elif self.state == GameState.GAME_OVER:
+                        action = self.game_over_menu.handle_click(mouse_pos)
+                        if action == 'retry':
+                            self.start_new_game(delete_save=True)
+                        elif action == 'main_menu':
+                            self.state = GameState.MENU
+
+                    elif self.state == GameState.SHOP:
+                        result = self.upgrade_shop.handle_click(mouse_pos, self.player, self.inventory)
+                        if result == 'continue':
+                            # Save game before continuing
+                            self.save_game()
+                            # Continue to next round
+                            self.round_manager.start_round()
+                            self.state = GameState.PLAYING
+                            self.round_complete_flag = False
 
     def try_shoot(self):
         """Attempt to shoot a bullet"""
+        if not self.player or not self.inventory:
+            return
+
         # Use weapon from inventory
         weapon = self.inventory.get_active_weapon()
         if weapon:
@@ -107,9 +287,34 @@ class Game:
         Args:
             dt (float): Delta time in seconds
         """
-        if self.game_over:
-            return
+        # Update based on state
+        if self.state == GameState.MENU:
+            mouse_pos = pygame.mouse.get_pos()
+            self.main_menu.update(mouse_pos)
 
+        elif self.state == GameState.PLAYING:
+            self.update_gameplay(dt)
+
+        elif self.state == GameState.PAUSED:
+            mouse_pos = pygame.mouse.get_pos()
+            self.pause_menu.update(mouse_pos)
+
+        elif self.state == GameState.GAME_OVER:
+            mouse_pos = pygame.mouse.get_pos()
+            self.game_over_menu.update(mouse_pos)
+
+        elif self.state == GameState.SHOP:
+            mouse_pos = pygame.mouse.get_pos()
+            # Update shop and check if time expired
+            if self.upgrade_shop.update(dt, mouse_pos):
+                # Time expired, save and continue to next round
+                self.save_game()
+                self.round_manager.start_round()
+                self.state = GameState.PLAYING
+                self.round_complete_flag = False
+
+    def update_gameplay(self, dt):
+        """Update gameplay logic"""
         # Update inventory (weapons and powerups)
         self.inventory.update_weapons(dt)
         self.inventory.update_powerups(dt, self.player)
@@ -121,7 +326,7 @@ class Game:
 
         # Check if player died
         if self.player.hp <= 0:
-            self.game_over = True
+            self.state = GameState.GAME_OVER
             return
 
         # Update bullets
@@ -173,16 +378,23 @@ class Game:
             )
             self.enemies.append(enemy)
 
-        # Check if round/world is complete
+        # Check if round is complete
         round_info = self.round_manager.get_round_info()
         if round_info['enemies_remaining'] == 0 and len(self.enemies) == 0:
-            if not round_info['in_break']:
-                # Round complete - check world progression
+            if not round_info['in_break'] and not self.round_complete_flag:
+                # Round just completed
+                self.round_complete_flag = True
+
+                # Complete round in world manager
                 advanced_world = self.world_manager.complete_round()
+
+                # Open upgrade shop
+                self.upgrade_shop.reset_timer()
+                self.state = GameState.SHOP
+
                 if advanced_world:
                     # Advanced to next world - reset round manager
                     self.round_manager.reset()
-                    self.round_manager.start_round()
 
     def check_collisions(self):
         """Check all collision between game objects"""
@@ -210,168 +422,66 @@ class Game:
 
     def draw(self):
         """Draw all game objects to screen"""
-        # Clear screen with world-specific background color
-        bg_color = self.world_manager.get_background_color()
-        self.screen.fill(bg_color)
+        if self.state == GameState.MENU:
+            self.main_menu.draw(self.screen)
 
-        if not self.game_over:
-            # Draw drops (behind everything)
-            for drop in self.drops:
-                drop.draw(self.screen)
+        elif self.state == GameState.PLAYING:
+            self.draw_gameplay()
 
-            # Draw player
-            self.player.draw(self.screen)
+        elif self.state == GameState.PAUSED:
+            # Draw gameplay in background
+            self.draw_gameplay()
+            # Draw pause menu on top
+            self.pause_menu.draw(self.screen)
 
-            # Draw bullets
-            for bullet in self.bullets:
-                bullet.draw(self.screen)
+        elif self.state == GameState.GAME_OVER:
+            # Draw gameplay in background
+            self.draw_gameplay()
+            # Draw game over menu on top
+            world_info = self.world_manager.get_current_world_info()
+            round_info = self.round_manager.get_round_info()
+            self.game_over_menu.draw(self.screen, self.kills, world_info, round_info)
 
-            # Draw enemies
-            for enemy in self.enemies:
-                enemy.draw(self.screen)
-
-            # Draw HUD
-            self.draw_hud()
-
-        else:
-            # Draw game over screen
-            self.draw_game_over()
+        elif self.state == GameState.SHOP:
+            # Draw gameplay in background
+            self.draw_gameplay()
+            # Draw upgrade shop on top
+            self.upgrade_shop.draw(self.screen, self.player, self.inventory, self.world_manager)
 
         # Update display
         pygame.display.flip()
 
-    def draw_hud(self):
-        """Draw heads-up display"""
-        # HP Bar (top-left)
-        bar_width = 200
-        bar_height = 24
-        bar_x = 10
-        bar_y = 10
+    def draw_gameplay(self):
+        """Draw the main gameplay view"""
+        # Clear screen with world-specific background color
+        bg_color = self.world_manager.get_background_color()
+        self.screen.fill(bg_color)
 
-        # Background
-        pygame.draw.rect(self.screen, (80, 0, 0),
-                        (bar_x, bar_y, bar_width, bar_height))
+        # Draw drops (behind everything)
+        for drop in self.drops:
+            drop.draw(self.screen)
 
-        # HP fill
-        hp_percentage = max(0, self.player.hp / self.player.max_hp)
-        hp_color = (0, 255, 0) if hp_percentage > 0.5 else (255, 255, 0) if hp_percentage > 0.25 else (255, 0, 0)
-        pygame.draw.rect(self.screen, hp_color,
-                        (bar_x, bar_y, int(bar_width * hp_percentage), bar_height))
+        # Draw player
+        self.player.draw(self.screen)
 
-        # HP border
-        pygame.draw.rect(self.screen, self.TEXT_COLOR,
-                        (bar_x, bar_y, bar_width, bar_height), 2)
+        # Draw bullets
+        for bullet in self.bullets:
+            bullet.draw(self.screen)
 
-        # HP text
-        hp_text = self.small_font.render(f"HP: {int(self.player.hp)}/{self.player.max_hp}",
-                                         True, self.TEXT_COLOR)
-        self.screen.blit(hp_text, (bar_x + 5, bar_y + 3))
+        # Draw enemies
+        for enemy in self.enemies:
+            enemy.draw(self.screen)
 
-        # World and Round info (top-center)
-        world_info = self.world_manager.get_current_world_info()
-        round_info = self.round_manager.get_round_info()
-
-        world_text = self.font.render(f"{world_info['name']}", True, self.world_manager.get_accent_color())
-        world_rect = world_text.get_rect(center=(self.screen_width // 2, 20))
-        self.screen.blit(world_text, world_rect)
-
-        # Round info below world name
-        if round_info['in_break']:
-            round_text = self.small_font.render(
-                f"Next Round in {round_info['break_time']:.1f}s",
-                True, (255, 200, 100)
-            )
-        else:
-            round_text = self.small_font.render(
-                f"Round {round_info['round']} - {world_info['rounds_completed']}/{world_info['rounds_completed'] + world_info['rounds_remaining']}",
-                True, self.TEXT_COLOR
-            )
-        round_rect = round_text.get_rect(center=(self.screen_width // 2, 50))
-        self.screen.blit(round_text, round_rect)
-
-        # Kills (top-right)
-        kills_text = self.small_font.render(f"Kills: {self.kills}", True, self.TEXT_COLOR)
-        self.screen.blit(kills_text, (self.screen_width - 120, 15))
-
-        # Enemy count
-        enemy_text = self.small_font.render(f"Enemies: {len(self.enemies)}",
-                                           True, self.TEXT_COLOR)
-        self.screen.blit(enemy_text, (self.screen_width - 150, 45))
-
-        # Enemies remaining in round
-        if round_info['enemies_remaining'] > 0:
-            remaining_text = self.small_font.render(
-                f"Spawning: {round_info['enemies_remaining']}",
-                True, (255, 100, 100)
-            )
-            self.screen.blit(remaining_text, (self.screen_width - 180, 75))
-
-        # Weapon display (bottom-left)
-        weapon_info = self.inventory.get_weapon_display_info()
-        weapon_y = self.screen_height - 100
-        for info in weapon_info:
-            slot_text = f"[{info['slot']}] "
-            if info.get('name') != 'Empty':
-                color = info['color'] if info['active'] else (150, 150, 150)
-                weapon_label = self.small_font.render(
-                    f"{slot_text}{info['name']}",
-                    True,
-                    color
-                )
-            else:
-                weapon_label = self.small_font.render(
-                    f"{slot_text}Empty",
-                    True,
-                    (100, 100, 100)
-                )
-            self.screen.blit(weapon_label, (10, weapon_y))
-            weapon_y += 25
-
-        # Powerup timers (bottom-right)
-        powerup_info = self.inventory.get_powerup_display_info()
-        powerup_y = self.screen_height - 100
-        for info in powerup_info:
-            powerup_text = self.small_font.render(
-                f"{info['name']}: {info['time_remaining']:.1f}s",
-                True,
-                info['color']
-            )
-            self.screen.blit(powerup_text, (self.screen_width - 200, powerup_y))
-            powerup_y += 25
-
-        # Coins display (under kills)
-        coins_text = self.small_font.render(f"Coins: {self.inventory.coins}", True, (255, 215, 0))
-        self.screen.blit(coins_text, (self.screen_width - 120, 105))
-
-        # Phase 4 label
-        phase_text = self.small_font.render("Phase 4: Loot & Inventory", True, (100, 200, 255))
-        self.screen.blit(phase_text, (10, self.screen_height - 30))
-
-    def draw_game_over(self):
-        """Draw game over screen"""
-        # Semi-transparent overlay
-        overlay = pygame.Surface((self.screen_width, self.screen_height))
-        overlay.set_alpha(128)
-        overlay.fill((0, 0, 0))
-        self.screen.blit(overlay, (0, 0))
-
-        # Game Over text
-        game_over_text = self.font.render("GAME OVER!", True, (255, 50, 50))
-        text_rect = game_over_text.get_rect(center=(self.screen_width // 2,
-                                                     self.screen_height // 2 - 60))
-        self.screen.blit(game_over_text, text_rect)
-
-        # Final score
-        score_text = self.font.render(f"Kills: {self.kills}", True, self.TEXT_COLOR)
-        score_rect = score_text.get_rect(center=(self.screen_width // 2,
-                                                  self.screen_height // 2))
-        self.screen.blit(score_text, score_rect)
-
-        # Instructions
-        restart_text = self.small_font.render("Press ESC to quit", True, (200, 200, 200))
-        restart_rect = restart_text.get_rect(center=(self.screen_width // 2,
-                                                     self.screen_height // 2 + 60))
-        self.screen.blit(restart_text, restart_rect)
+        # Draw HUD
+        self.hud.draw_all(
+            self.screen,
+            self.player,
+            self.inventory,
+            self.world_manager,
+            self.round_manager,
+            self.kills,
+            len(self.enemies)
+        )
 
     def run(self):
         """Main game loop"""
