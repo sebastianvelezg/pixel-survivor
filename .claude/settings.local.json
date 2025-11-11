@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(tree:*)",
-      "Bash(dir /S /B)"
+      "Bash(dir /S /B)",
+      "Bash(python main.py:*)",
+      "Bash(\"c:\\Users\\sebas\\Desktop\\pixel survivor\\scripts\\round_manager.py\")",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

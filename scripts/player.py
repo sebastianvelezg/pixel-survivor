@@ -26,6 +26,10 @@ class Player:
         self.hp = self.max_hp
         self.damage = config.get('damage', 10)
 
+        # Powerup state
+        self.has_shield = False
+        self.is_invincible = False
+
         # Visual properties
         self.size = 32  # 32x32 pixel square for now
         self.color = (0, 150, 255)  # Blue player
@@ -91,8 +95,25 @@ class Player:
         Args:
             screen: Pygame screen surface
         """
+        # Change color based on powerup state
+        draw_color = self.color
+        if self.is_invincible:
+            draw_color = (255, 255, 100)  # Yellow when invincible
+        elif self.has_shield:
+            draw_color = (100, 255, 255)  # Cyan when shielded
+
         # Draw body (blue square)
-        pygame.draw.rect(screen, self.color, self.rect)
+        pygame.draw.rect(screen, draw_color, self.rect)
+
+        # Draw shield indicator
+        if self.has_shield and not self.is_invincible:
+            shield_rect = pygame.Rect(
+                self.rect.x - 4,
+                self.rect.y - 4,
+                self.rect.width + 8,
+                self.rect.height + 8
+            )
+            pygame.draw.rect(screen, (100, 255, 255), shield_rect, 2)
 
         # Draw direction indicator (line showing where player is facing)
         end_x = self.x + math.cos(self.angle) * self.size
@@ -112,6 +133,15 @@ class Player:
         Returns:
             bool: True if player is still alive
         """
+        # Invincibility blocks all damage
+        if self.is_invincible:
+            return True
+
+        # Shield blocks first hit
+        if self.has_shield:
+            self.has_shield = False  # Shield breaks after one hit
+            return True
+
         self.hp = max(0, self.hp - amount)
         return self.hp > 0
 
