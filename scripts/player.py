@@ -91,16 +91,38 @@ class Player:
         Args:
             screen: Pygame screen surface
         """
-        # Draw body (blue square)
+        # Draw shadow (slightly offset)
+        shadow_rect = self.rect.copy()
+        shadow_rect.x += 2
+        shadow_rect.y += 2
+        pygame.draw.rect(screen, (0, 0, 0, 100), shadow_rect)
+
+        # Draw body (blue square with gradient effect)
         pygame.draw.rect(screen, self.color, self.rect)
 
-        # Draw direction indicator (line showing where player is facing)
-        end_x = self.x + math.cos(self.angle) * self.size
-        end_y = self.y + math.sin(self.angle) * self.size
-        pygame.draw.line(screen, (255, 255, 0), (self.x, self.y), (end_x, end_y), 3)
+        # Draw darker border for depth
+        border_color = (0, 100, 180)
+        pygame.draw.rect(screen, border_color, self.rect, 2)
+
+        # Draw inner highlight
+        highlight_rect = pygame.Rect(self.rect.x + 4, self.rect.y + 4,
+                                     self.rect.width - 8, self.rect.height - 8)
+        pygame.draw.rect(screen, (50, 180, 255), highlight_rect, 1)
+
+        # Draw direction indicator (gun barrel)
+        barrel_length = self.size * 0.8
+        end_x = self.x + math.cos(self.angle) * barrel_length
+        end_y = self.y + math.sin(self.angle) * barrel_length
+        # Thicker line with outline
+        pygame.draw.line(screen, (50, 50, 50), (self.x, self.y), (end_x, end_y), 5)
+        pygame.draw.line(screen, (255, 220, 0), (self.x, self.y), (end_x, end_y), 3)
+
+        # Draw muzzle at the end of barrel
+        pygame.draw.circle(screen, (255, 100, 0), (int(end_x), int(end_y)), 3)
 
         # Draw center dot
-        pygame.draw.circle(screen, (255, 255, 255), (int(self.x), int(self.y)), 3)
+        pygame.draw.circle(screen, (255, 255, 255), (int(self.x), int(self.y)), 4)
+        pygame.draw.circle(screen, (0, 0, 0), (int(self.x), int(self.y)), 2)
 
     def take_damage(self, amount):
         """
