@@ -1,0 +1,91 @@
+{
+  "game": {
+    "title": "Pixel Survivor: Worlds",
+    "window_width": 800,
+    "window_height": 600,
+    "fps": 60
+  },
+  "player": {
+    "max_hp": 100,
+    "speed": 5,
+    "damage": 10
+  },
+  "worlds": [
+    {
+      "world": 1,
+      "rounds": 10,
+      "enemy_speed_multiplier": 1.0,
+      "enemy_health_multiplier": 1.0,
+      "spawn_rate": 3
+    },
+    {
+      "world": 2,
+      "rounds": 20,
+      "enemy_speed_multiplier": 1.2,
+      "enemy_health_multiplier": 1.2,
+      "spawn_rate": 2.5
+    },
+    {
+      "world": 3,
+      "rounds": 30,
+      "enemy_speed_multiplier": 1.4,
+      "enemy_health_multiplier": 1.4,
+      "spawn_rate": 2.0
+    },
+    {
+      "world": 4,
+      "rounds": 40,
+      "enemy_speed_multiplier": 1.6,
+      "enemy_health_multiplier": 1.6,
+      "spawn_rate": 1.8
+    },
+    {
+      "world": 5,
+      "rounds": 50,
+      "enemy_speed_multiplier": 1.8,
+      "enemy_health_multiplier": 1.8,
+      "spawn_rate": 1.5
+    },
+    {
+      "world": 6,
+      "rounds": 60,
+      "enemy_speed_multiplier": 2.0,
+      "enemy_health_multiplier": 2.0,
+      "spawn_rate": 1.3
+    },
+    {
+      "world": 7,
+      "rounds": 70,
+      "enemy_speed_multiplier": 2.2,
+      "enemy_health_multiplier": 2.2,
+      "spawn_rate": 1.2
+    },
+    {
+      "world": 8,
+      "rounds": 80,
+      "enemy_speed_multiplier": 2.4,
+      "enemy_health_multiplier": 2.5,
+      "spawn_rate": 1.0
+    },
+    {
+      "world": 9,
+      "rounds": 90,
+      "enemy_speed_multiplier": 2.6,
+      "enemy_health_multiplier": 2.8,
+      "spawn_rate": 0.9
+    },
+    {
+      "world": 10,
+      "rounds": 100,
+      "enemy_speed_multiplier": 3.0,
+      "enemy_health_multiplier": 3.0,
+      "spawn_rate": 0.8
+    }
+  ],
+  "drop_rates": {
+    "common": 0.60,
+    "uncommon": 0.30,
+    "rare": 0.09,
+    "legendary": 0.01
+  }
+}
