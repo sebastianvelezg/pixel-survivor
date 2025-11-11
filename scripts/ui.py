@@ -337,13 +337,42 @@ class MainMenu:
         # Fonts
         self.title_font = pygame.font.Font(None, 72)
         self.subtitle_font = pygame.font.Font(None, 36)
+        self.small_font = pygame.font.Font(None, 24)
 
-        # Buttons
-        center_x = screen_width // 2
-        center_y = screen_height // 2
+        # Save info
+        self.has_save = False
+        self.save_info = None
 
-        self.play_button = Button(center_x, center_y + 20, 200, 60, "Play")
-        self.quit_button = Button(center_x, center_y + 100, 200, 60, "Quit")
+        # Buttons (positioned based on whether save exists)
+        self._create_buttons()
+
+    def _create_buttons(self):
+        """Create menu buttons based on save state"""
+        center_x = self.screen_width // 2
+        center_y = self.screen_height // 2
+
+        if self.has_save:
+            # Show Continue, New Game, Quit
+            self.continue_button = Button(center_x, center_y + 20, 220, 60, "Continue")
+            self.new_game_button = Button(center_x, center_y + 100, 220, 60, "New Game")
+            self.quit_button = Button(center_x, center_y + 180, 220, 60, "Quit")
+        else:
+            # Show Play, Quit
+            self.continue_button = None
+            self.new_game_button = Button(center_x, center_y + 20, 200, 60, "Play")
+            self.quit_button = Button(center_x, center_y + 100, 200, 60, "Quit")
+
+    def set_save_state(self, has_save, save_info=None):
+        """
+        Update menu based on save file existence
+
+        Args:
+            has_save (bool): Whether a save file exists
+            save_info (dict): Save file information (world, round, etc.)
+        """
+        self.has_save = has_save
+        self.save_info = save_info
+        self._create_buttons()
 
     def update(self, mouse_pos):
         """
@@ -352,7 +381,9 @@ class MainMenu:
         Args:
             mouse_pos (tuple): Mouse position
         """
-        self.play_button.update(mouse_pos)
+        if self.has_save and self.continue_button:
+            self.continue_button.update(mouse_pos)
+        self.new_game_button.update(mouse_pos)
         self.quit_button.update(mouse_pos)
 
     def handle_click(self, mouse_pos):
@@ -363,10 +394,14 @@ class MainMenu:
             mouse_pos (tuple): Mouse position
 
         Returns:
-            str: Action to take ('play', 'quit', or None)
+            str: Action to take ('continue', 'new_game', 'quit', or None)
         """
-        if self.play_button.is_clicked(mouse_pos, True):
-            return 'play'
+        if self.has_save and self.continue_button:
+            if self.continue_button.is_clicked(mouse_pos, True):
+                return 'continue'
+
+        if self.new_game_button.is_clicked(mouse_pos, True):
+            return 'new_game'
         elif self.quit_button.is_clicked(mouse_pos, True):
             return 'quit'
         return None
@@ -391,6 +426,16 @@ class MainMenu:
         subtitle_rect = subtitle_text.get_rect(center=(self.screen_width // 2, 200))
         screen.blit(subtitle_text, subtitle_rect)
 
+        # Save info (if exists)
+        if self.has_save and self.save_info:
+            save_text = self.small_font.render(
+                f"Saved: World {self.save_info.get('world_number', '?')} - Round {self.save_info.get('round_number', '?')}",
+                True,
+                (100, 255, 100)
+            )
+            save_rect = save_text.get_rect(center=(self.screen_width // 2, 240))
+            screen.blit(save_text, save_rect)
+
         # Instructions
         info_font = pygame.font.Font(None, 24)
         controls = [
@@ -400,7 +445,7 @@ class MainMenu:
             "1/2/3 - Switch Weapons"
         ]
 
-        y_offset = 280
+        y_offset = 280 if not self.has_save else 270
         for control in controls:
             control_text = info_font.render(control, True, (150, 150, 150))
             control_rect = control_text.get_rect(center=(self.screen_width // 2, y_offset))
@@ -408,7 +453,9 @@ class MainMenu:
             y_offset += 25
 
         # Buttons
-        self.play_button.draw(screen)
+        if self.has_save and self.continue_button:
+            self.continue_button.draw(screen)
+        self.new_game_button.draw(screen)
         self.quit_button.draw(screen)
 
 
